@@ -1,0 +1,10 @@
+[package]
+name = "project1"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+cpal = { version = "0.18", features = ["pipewire"] }
+ndarray = "0.17.2"
+pyin = "1.2.0"
+ringbuf = "0.3"
