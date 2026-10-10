@@ -35,7 +35,7 @@ impl PitchDetector {
             return false;
         }
 
- // --- PROBE 2: BUFFER CHECK ---
+        // --- PROBE 2: BUFFER CHECK ---
         if self.buffer.len() < self.window_size {
             // This will tell us if the buffer is stuck or growing
             // println!("Buffer size: {}", self.buffer.len()); 

@@ -1,0 +1,154 @@
+mod pitch_detector;
+mod eq;
+
+use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
+use cpal::StreamConfig;
+use eq::GraphicEqualizer;
+use ringbuf::{HeapRb, Producer, Consumer};
+use pitch_detector::PitchDetector;
+use std::thread;
+use std::time::Duration;
+
+fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let host = cpal::default_host();
+
+    // --- 1. SETUP INPUT DEVICE ---
+    let input_device = host.default_input_device().expect("No input device");
+    let input_config = input_device.default_input_config()?;
+    let input_sample_rate = input_config.sample_rate() as f64;
+    let input_stream_config: StreamConfig = input_config.into();
+
+    // --- 2. SETUP OUTPUT DEVICE ---
+    let output_device = host.default_output_device().expect("No output device");
+    let output_config = output_device.default_output_config()?;
+    let output_stream_config: StreamConfig = output_config.into();
+    
+    let input_description = input_device.description()?;
+    let output_description = output_device.description()?;
+
+    println!("Input Device:  {}", input_description.name());
+    println!("Output Device: {}", output_description.name());
+    println!("Sample Rate:   {}", input_sample_rate);
+
+    // --- 3. SETUP RING BUFFERS ---
+    // Buffer A: Input -> Main Loop
+    let rb_in = HeapRb::<f32>::new(65535);
+    let (mut producer_in, mut consumer_in) = rb_in.split();
+
+    // Buffer B: Main Loop -> Output
+    let rb_out = HeapRb::<f32>::new(65535);
+    let (mut producer_out, mut consumer_out) = rb_out.split();
+
+    let mut detector = PitchDetector::new(
+        input_sample_rate, 
+        2048, 
+        512, 
+        60.0, 
+        600.0
+    );
+
+    let mut graphic_eq = GraphicEqualizer::new(
+        input_sample_rate as f32
+    );
+    graphic_eq.set_bass(100.0, 0.7, 0.6);
+    graphic_eq.set_mid(1000.0, 1.0, 3.0);
+    graphic_eq.set_treble(5000.0, 0.7, -6.0);
+
+    // --- 5. BUILD INPUT STREAM ---
+    let input_stream = match input_config.sample_format() {
+        cpal::SampleFormat::F32 => {
+            input_device.build_input_stream(
+                input_stream_config,
+                move |data: &[f32], _| {
+                    for &sample in data { let _ = producer_in.push(sample); }
+                },
+                |err| eprintln!("Input Error: {}", err),
+                None,
+            )?
+        }
+        cpal::SampleFormat::I16 => {
+            input_device.build_input_stream(
+                input_stream_config,
+                move |data: &[i16], _| {
+                    for &sample in data {
+                        let _ = producer_in.push(sample as f32 / i16::MAX as f32);
+                    }
+                },
+                |err| eprintln!("Input Error: {}", err),
+                None,
+            )?
+        }
+        _ => return Err("Unsupported input format".into()),
+    };
+
+    // --- 6. BUILD OUTPUT STREAM ---
+    let output_stream = match output_config.sample_format() {
+        cpal::SampleFormat::F32 => {
+            output_device.build_output_stream(
+                output_stream_config,
+                move |data: &mut [f32], _| {
+                    // Pull processed samples from the ring buffer and push to speakers
+                    for sample in data.iter_mut() {
+                        *sample = consumer_out.pop().unwrap_or(0.0);
+                    }
+                },
+                |err| eprintln!("Output Error: {}", err),
+                None,
+            )?
+        }
+        cpal::SampleFormat::I16 => {
+            output_device.build_output_stream(
+                output_stream_config,
+                move |data: &mut [i16], _| {
+                    // Pull processed samples and convert to i16 for speakers
+                    for sample in data.iter_mut() {
+                        let s = consumer_out.pop().unwrap_or(0.0);
+                        *sample = (s * i16::MAX as f32) as i16;
+                    }
+                },
+                |err| eprintln!("Output Error: {}", err),
+                None,
+            )?
+        }
+        _ => return Err("Unsupported output format".into()),
+    };
+
+    // Start both streams
+    input_stream.play()?;
+    output_stream.play()?;
+    println!("Loopback active. You should hear yourself now!");
+
+    loop {
+        let mut new_samples = Vec::new();
+        while let Some(sample) = consumer_in.pop() {
+            new_samples.push(sample);
+        }
+
+        if !new_samples.is_empty() {
+            // --- PROBE: Check actual incoming volume ---
+            let rms: f32 = (new_samples.iter().map(|&s| s * s).sum::<f32>() / new_samples.len() as f32).sqrt();
+            
+            detector.feed_samples(&new_samples);
+            detector.update();
+
+            if let Some(pitch) = detector.get_pitch() {
+                print!("\r[PITCH] {:.2} Hz | Vol: {:.4} | Voiced: Yes   ", pitch, rms);
+            } else {
+                print!("\r[PITCH] NaN         | Vol: {:.4} | Voiced: No    ", rms);
+            }
+            use std::io::{self, Write};
+            io::stdout().flush().unwrap();
+
+            // Passthrough
+            graphic_eq.process(&mut new_samples);
+
+            for sample in new_samples {
+
+                let _ = producer_out.push(sample);
+            }
+        }
+
+        thread::sleep(Duration::from_millis(5));
+    }
+
+}
