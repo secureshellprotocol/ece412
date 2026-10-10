@@ -5,6 +5,7 @@ edition = "2024"
 
 [dependencies]
 cpal = { version = "0.18", features = ["pipewire"] }
+fundsp = "0.23.0"
 hound = "3.5.1"
 ndarray = "0.17.2"
 pyin = "1.2.0"

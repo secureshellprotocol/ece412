@@ -3,109 +3,100 @@ pub struct Biquad {
     // Coefficients
     b0: f32, b1: f32, b2: f32,
     a1: f32, a2: f32,
-    // State (Direct Form I)
-    x1: f32, x2: f32,
-    y1: f32, y2: f32,
+    // State variables (Only 2 needed for Direct Form II Transposed)
+    z1: f32, z2: f32,
 }
 
 impl Biquad {
     fn new() -> Self {
         Self {
             b0: 1.0, b1: 0.0, b2: 0.0, a1: 0.0, a2: 0.0,
-            x1: 0.0, x2: 0.0, y1: 0.0, y2: 0.0,
+            z1: 0.0, z2: 0.0,
         }
     }
 
+    /// Direct Form II Transposed processing: The gold standard for stability.
     #[inline]
     pub fn process(&mut self, x: f32) -> f32 {
-        let y = (self.b0 * x) + (self.b1 * self.x1) + (self.b2 * self.x2)
-                - (self.a1 * self.y1) - (self.a2 * self.y2);
-
-        self.x2 = self.x1;
-        self.x1 = x;
-        self.y2 = self.y1;
-        self.y1 = y;
+        let y = self.b0 * x + self.z1;
+        self.z1 = self.b1 * x - self.a1 * y + self.z2;
+        self.z2 = self.b2 * x - self.a2 * y;
         y
     }
 
-    /// The core calculation engine. 
-    /// Uses f64 for all intermediate math and applies stability clamps.
     fn update_coeffs(&mut self, b0: f64, b1: f64, b2: f64, a0: f64, a1: f64, a2: f64) {
-        // 1. Normalize all coefficients by a0
-        let nb0 = b0 / a0;
-        let nb1 = b1 / a0;
-        let nb2 = b2 / a0;
-        let na1 = a1 / a0;
-        let na2 = a2 / a0;
+        // Stability Guard: Clamp feedback coefficients to prevent oscillation
+        let na1 = (a1 / a0).clamp(-0.999, 0.999);
+        let na2 = (a2 / a0).clamp(-0.999, 0.999);
 
-        // 2. STABILITY GUARD:
-        // In a Biquad filter, if |a1| or |a2| >= 1.0, the filter explodes (becomes an oscillator).
-        // We clamp them to 0.999 to ensure mathematical stability.
-        let na1_clamped = na1.clamp(-0.999, 0.999);
-        let na2_clamped = na2.clamp(-0.999, 0.999);
-
-        self.b0 = nb0 as f32;
-        self.b1 = nb1 as f32;
-        self.b2 = nb2 as f32;
-        self.a1 = na1_clamped as f32;
-        self.a2 = na2_clamped as f32;
+        self.b0 = (b0 / a0) as f32;
+        self.b1 = (b1 / a0) as f32;
+        self.b2 = (b2 / a0) as f32;
+        self.a1 = na1 as f32;
+        self.a2 = na2 as f32;
     }
 
     pub fn set_peaking(&mut self, sr: f32, freq: f32, q: f32, gain_db: f32) {
         let (sr, f, q, db) = (sr as f64, freq as f64, q as f64, gain_db as f64);
+        // Safety check: frequency must be < Nyquist
+        if f >= sr / 2.0 { return; }
+
         let a = 10.0f64.powf(db / 40.0);
         let omega = 2.0 * std::f32::consts::PI as f64 * f / sr;
         let alpha = omega.sin() / (2.0 * q);
         let cos_w = omega.cos();
 
-        let b0 = 1.0 + alpha * a;
-        let b1 = -2.0 * cos_w;
-        let b2 = 1.0 - alpha * a;
-        let a0 = 1.0 + alpha / a;
-        let a1 = -2.0 * cos_w;
-        let a2 = 1.0 - alpha / a;
-
-        self.update_coeffs(b0, b1, b2, a0, a1, a2);
+        self.update_coeffs(
+            1.0 + alpha * a,
+            -2.0 * cos_w,
+            1.0 - alpha * a,
+            1.0 + alpha / a,
+            -2.0 * cos_w,
+            1.0 - alpha / a
+        );
     }
 
     pub fn set_low_shelf(&mut self, sr: f32, freq: f32, q: f32, gain_db: f32) {
         let (sr, f, q, db) = (sr as f64, freq as f64, q as f64, gain_db as f64);
+        if f >= sr / 2.0 { return; }
+
         let a = 10.0f64.powf(db / 40.0);
         let omega = 2.0 * std::f32::consts::PI as f64 * f / sr;
         let sin_w = omega.sin();
         let cos_w = omega.cos();
         let alpha = (sin_w / 2.0) * ((a + 1.0/a).sqrt() * (1.0/q - 1.0).sqrt() + 2.0).sqrt();
 
-        let b0 = a * ((a + 1.0) - (a - 1.0) * cos_w + 2.0 * a.sqrt() * alpha);
-        let b1 = 2.0 * a * ((a - 1.0) - (a + 1.0) * cos_w + 2.0 * a.sqrt() * alpha);
-        let b2 = a * ((a + 1.0) - (a - 1.0) * cos_w - 2.0 * a.sqrt() * alpha);
-        let a0 = (a + 1.0) + (a - 1.0) * cos_w + 2.0 * a.sqrt() * alpha;
-        let a1 = -2.0 * ((a - 1.0) + (a + 1.0) * cos_w + 2.0 * a.sqrt() * alpha);
-        let a2 = (a + 1.0) + (a - 1.0) * cos_w - 2.0 * a.sqrt() * alpha;
-
-        self.update_coeffs(b0, b1, b2, a0, a1, a2);
+        self.update_coeffs(
+            a * ((a + 1.0) + (a - 1.0) * cos_w + 2.0 * a.sqrt() * alpha),
+            a * (-2.0 * ((a - 1.0) + (a + 1.0) * cos_w + 2.0 * a.sqrt() * alpha)),
+            a * ((a + 1.0) + (a - 1.0) * cos_w - 2.0 * a.sqrt() * alpha),
+            (a + 1.0) + (a - 1.0) * cos_w + 2.0 * a.sqrt() * alpha,
+            -2.0 * ((a - 1.0) + (a + 1.0) * cos_w + 2.0 * a.sqrt() * alpha),
+            (a + 1.0) + (a - 1.0) * cos_w - 2.0 * a.sqrt() * alpha
+        );
     }
 
     pub fn set_high_shelf(&mut self, sr: f32, freq: f32, q: f32, gain_db: f32) {
         let (sr, f, q, db) = (sr as f64, freq as f64, q as f64, gain_db as f64);
+        if f >= sr / 2.0 { return; }
+
         let a = 10.0f64.powf(db / 40.0);
         let omega = 2.0 * std::f32::consts::PI as f64 * f / sr;
         let sin_w = omega.sin();
         let cos_w = omega.cos();
         let alpha = (sin_w / 2.0) * ((a + 1.0/a).sqrt() * (1.0/q - 1.0).sqrt() + 2.0).sqrt();
 
-        let b0 = a * ((a + 1.0) + (a - 1.0) * cos_w + 2.0 * a.sqrt() * alpha);
-        let b1 = -2.0 * a * ((a - 1.0) + (a + 1.0) * cos_w + 2.0 * a.sqrt() * alpha);
-        let b2 = a * ((a + 1.0) + (a - 1.0) * cos_w - 2.0 * a.sqrt() * alpha);
-        let a0 = (a + 1.0) - (a - 1.0) * cos_w + 2.0 * a.sqrt() * alpha;
-        let a1 = 2.0 * ((a - 1.0) - (a + 1.0) * cos_w + 2.0 * a.sqrt() * alpha);
-        let a2 = (a + 1.0) - (a - 1.0) * cos_w - 2.0 * a.sqrt() * alpha;
-
-        self.update_coeffs(b0, b1, b2, a0, a1, a2);
+        self.update_coeffs(
+            a * ((a + 1.0) - (a - 1.0) * cos_w + 2.0 * a.sqrt() * alpha),
+            a * (2.0 * ((a - 1.0) - (a + 1.0) * cos_w + 2.0 * a.sqrt() * alpha)),
+            a * ((a + 1.0) - (a - 1.0) * cos_w - 2.0 * a.sqrt() * alpha),
+            (a + 1.0) - (a - 1.0) * cos_w + 2.0 * a.sqrt() * alpha,
+            2.0 * ((a - 1.0) - (a + 1.0) * cos_w + 2.0 * a.sqrt() * alpha),
+            (a + 1.0) - (a - 1.0) * cos_w - 2.0 * a.sqrt() * alpha
+        );
     }
 }
 
-// --- [GraphicEqualizer remains the same] ---
 pub struct GraphicEqualizer {
     bass_filters: Vec<Biquad>,
     mid_filters: Vec<Biquad>,
@@ -127,17 +118,9 @@ impl GraphicEqualizer {
         Self { bass_filters: bass, mid_filters: mid, treble_filters: treble, sample_rate, channels }
     }
 
-    pub fn set_bass(&mut self, freq: f32, q: f32, gain_db: f32) {
-        for f in &mut self.bass_filters { f.set_low_shelf(self.sample_rate, freq, q, gain_db); }
-    }
-
-    pub fn set_mid(&mut self, freq: f32, q: f32, gain_db: f32) {
-        for f in &mut self.mid_filters { f.set_peaking(self.sample_rate, freq, q, gain_db); }
-    }
-
-    pub fn set_treble(&mut self, freq: f32, q: f32, gain_db: f32) {
-        for f in &mut self.treble_filters { f.set_high_shelf(self.sample_rate, freq, q, gain_db); }
-    }
+    pub fn set_bass(&mut self, f: f32, q: f32, g: f32) { for b in &mut self.bass_filters { b.set_low_shelf(self.sample_rate, f, q, g); } }
+    pub fn set_mid(&mut self, f: f32, q: f32, g: f32) { for m in &mut self.mid_filters { m.set_peaking(self.sample_rate, f, q, g); } }
+    pub fn set_treble(&mut self, f: f32, q: f32, g: f32) { for t in &mut self.treble_filters { t.set_high_shelf(self.sample_rate, f, q, g); } }
 
     pub fn process(&mut self, audio: &mut [f32]) {
         for chunk in audio.chunks_exact_mut(self.channels) {
@@ -146,18 +129,12 @@ impl GraphicEqualizer {
                 s = self.bass_filters[i].process(s);
                 s = self.mid_filters[i].process(s);
                 s = self.treble_filters[i].process(s);
-                
-                // Safety clamp: If math does go wild, prevent it from becoming NaN/Inf
-                // which would ruin the rest of the buffer.
-                if s.is_finite() {
-                    *sample = s;
-                } else {
-                    *sample = 0.0; 
-                }
+                *sample = s.clamp(-1.0, 1.0);
             }
         }
     }
 }
+
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let input_path = "phoneme-data/james/james.wav";
@@ -208,9 +185,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut eq = GraphicEqualizer::new(sample_rate, channels);
     
     // Adjust these values to see if anything changes
-    eq.set_bass(100.0, 0.7, 6.0); 
-    eq.set_mid(1000.0, 1.0, -3.0);
-    eq.set_treble(5000.0, 0.7, 4.0);
+    eq.set_bass(60.0, 1.0, 0.0); 
+    eq.set_mid(1000.0, 1.0, -6.0);
+    eq.set_treble(5000.0, 1.0, -6.0);
 
     println!("Applying EQ...");
     eq.process(&mut audio_data);
@@ -222,6 +199,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Check for NaN (Not a Number) - if this happens, the math "exploded"
     if max_out.is_nan() {
         panic!("ERROR: EQ produced NaN (Not a Number). The math is unstable.");
+    }
+
+    // 4. Verification Logic
+    let diff = (max_in - max_out).abs();
+    if diff < 0.01 {
+        println!("✅ SUCCESS: The signal is transparent. The EQ is not affecting volume.");
+    } else {
+        println!("❌ FAILURE: The EQ is changing the volume. Difference: {:.6}", diff);
     }
 
     // --- STEP 5: Write Output ---
