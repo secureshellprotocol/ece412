@@ -1,7 +1,13 @@
 use anyhow::Result;
 use fundsp::prelude64::*;
+use serde::{Serialize, Deserialize};
 
+const GEQ_CONFIG_PATH: &str = "./config/geq_config.yaml";
+
+#[derive(Serialize, Deserialize, Debug)]
 pub struct GraphicEqBlock {
+    enabled: bool,
+
     /// Bass filter params
     low_freq: f32,  // Hz     
     low_gain: f32,  // Linear 
@@ -18,7 +24,28 @@ pub struct GraphicEqBlock {
     high_q: f32,    // Q
 }
 impl GraphicEqBlock {
+    pub fn new() -> GraphicEqBlock {
+        match std::fs::exists(GEQ_CONFIG_PATH) {
+            Ok(true) => {
+                yaml_serde::from_str(
+                    &std::fs::read_to_string(GEQ_CONFIG_PATH.to_owned()).unwrap()
+                ).unwrap_or(GraphicEqBlock::default())
+            }
+            Ok(false) => {
+                GraphicEqBlock::default()
+            }
+            Err(_) => {
+                GraphicEqBlock::default()
+            }
+        }
+    }
+
     pub fn work(&self, input_audio: Wave) -> Result<Wave> {
+        if !self.enabled {
+            println!("Graphic equalizer disabled, skipping...");
+            return Ok(input_audio);
+        }
+
         println!("Applying EQ...");
         // Create the fundsp graph using the DSL
         // We chain the filters using the >> operator
@@ -40,6 +67,8 @@ impl GraphicEqBlock {
 impl Default for GraphicEqBlock {
     fn default() -> Self {
         GraphicEqBlock {
+            enabled: true,
+
             low_freq: 300.0,
             low_gain: 0.01,
             low_q: 1.0,
@@ -55,3 +84,13 @@ impl Default for GraphicEqBlock {
     }
 }
 
+mod test {
+    #[allow(unused)]
+    use super::*;
+    #[test]
+    fn make_geq_settings() -> Result<(), Box<dyn std::error::Error>> {
+        let yaml_string = yaml_serde::to_string(&GraphicEqBlock::default())?;
+        std::fs::write(GEQ_CONFIG_PATH, yaml_string)?;
+        Ok(())
+    }
+}

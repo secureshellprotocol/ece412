@@ -1,0 +1,10 @@
+enabled: true
+low_freq: 300.0
+low_gain: 0.01
+low_q: 1.0
+mid_freq: 1950.0
+mid_gain: 1000.0
+mid_q: 0.5
+high_freq: 3300.0
+high_gain: 0.01
+high_q: 1.0

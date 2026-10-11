@@ -12,3 +12,5 @@ insta-fun = { version = "2.4.1", features = ["dot"] }
 ndarray = "0.17.2"
 pyin = "1.2.0"
 ringbuf = "0.3"
+serde = { version = "1.0.229", features = ["derive"] }
+yaml_serde = "0.10.7"

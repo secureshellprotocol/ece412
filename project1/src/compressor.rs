@@ -82,15 +82,20 @@ mod test {
     #[test]
     fn awesome() {
         let sample_rate = 44100.0;
-        
-        // Now you can use it exactly like a native fundsp node!
-        let compressor = ManualCompressor::new(-20.0, 4.0, 10.0, 100.0, sample_rate);
-        
-        // This works because the compressor is an "Effect" node in the chain
-        let mut graph: Chain<Sine<f32>, ManualCompressor> = sin(440.0) >> compressor;
 
+        // 3. Use Explicit Node Construction to avoid "f32" ambiguity
+        let source = Sine::new(); 
+        let compressor = ManualCompressor::new(-20.0, 4.0, 10.0, 100.0, sample_rate);
+
+        // 4. Explicitly type the graph to help the compiler
+        // This tells Rust: "This graph is a chain of two AudioNodes"
+        let mut graph: Chain<Sine, ManualCompressor> = source >> compressor;
+
+        println!("Starting processing...");
         for _ in 0..10 {
+            // Now .tick() is guaranteed to be found because 'graph' is a Chain
             println!("Sample: {}", graph.tick());
         }
+
     }
 }
