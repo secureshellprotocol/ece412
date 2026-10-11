@@ -4,9 +4,11 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
+anyhow = "1.0.104"
 cpal = { version = "0.18", features = ["pipewire"] }
 fundsp = "0.23.0"
 hound = "3.5.1"
+insta-fun = { version = "2.4.1", features = ["dot"] }
 ndarray = "0.17.2"
 pyin = "1.2.0"
 ringbuf = "0.3"
