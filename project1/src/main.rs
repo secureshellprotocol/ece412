@@ -1,10 +1,12 @@
 mod graphic_eq;
 mod pitchshift_sampling;
+mod reverb;
 
 use anyhow::Result;
 use fundsp::prelude64::*;
 use graphic_eq::GraphicEqBlock;
 use pitchshift_sampling::SamplerShiftBlock;
+use reverb::ReverbBlock;
 use std::env;
 
 fn main() -> Result<()> {
@@ -26,6 +28,7 @@ fn main() -> Result<()> {
 
     let g_eq = GraphicEqBlock::new();
     let shift = SamplerShiftBlock::new();
+    let rev = ReverbBlock::new();
 
     println!("Reading: {}", input_path);
     let mut input_audio = Wave::load(&input_path)?;
@@ -37,6 +40,8 @@ fn main() -> Result<()> {
     }
 
     let output = g_eq.work(input_audio).unwrap();
+
+    let output = rev.work(output).unwrap();
 
     //if let Ok(output) = g_eq.work(input_audio) {
     if let Ok(output) = shift.work(output) {

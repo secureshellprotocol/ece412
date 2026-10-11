@@ -1475,6 +1475,8 @@ dependencies = [
  "insta-fun",
  "ndarray 0.17.2",
  "pyin",
+ "rand",
+ "rand_distr",
  "ringbuf",
  "serde",
  "yaml_serde",

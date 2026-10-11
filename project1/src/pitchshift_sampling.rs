@@ -47,7 +47,10 @@ impl SamplerShiftBlock {
             );
         }
 
-        // the step
+        // the step -- raise or lower the sampling rate based on the shift factor.
+        // note: This internally i think is just changing the shift freq. used by 
+        // the wav format. it didnt seem like this library exposed a lower level 
+        // for doing a matlab-esque zero over/undersample..
         let mut resampled_audio: Wave = input_audio.clone();
         resampled_audio.set_sample_rate(new_sampling_rate);
 
@@ -58,6 +61,7 @@ impl SamplerShiftBlock {
                 &mut lowshelf_hz(original_sampling_rate / 2.0, 1.0, 1.0)
             );
         }
+        resampled_audio.normalize();
         return Ok(resampled_audio);
     }
 }

@@ -49,6 +49,12 @@ impl GraphicEqBlock {
         println!("Applying EQ...");
         // Create the fundsp graph using the DSL
         // We chain the filters using the >> operator
+        // honestly i chose these since theyre the most similar to the mixing 
+        // bench we saw a couple papers ago
+        // if i had more time I wouldve parameterized this, since I can do an 
+        // iterator on the >> operator and apply N-2 amount bell_hz filters.
+        // 
+        // I think the odd shape'll give us some fairly epic spectrograms to be honest
         let mut eq_chain = lowshelf_hz(self.low_freq, self.low_q, self.low_gain) >> 
             bell_hz(self.mid_freq, self.mid_q, self.mid_gain) >>
             highshelf_hz(self.high_freq, self.high_q, self.high_gain);
