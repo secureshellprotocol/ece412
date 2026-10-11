@@ -12,21 +12,22 @@ Need to have [Rust](https://rust-lang.org/install.html) installed, and need to
 have a version of python available.
 
 I recommend using [uv](https://docs.astral.sh/uv/getting-started/installation/)
-installed and managing your environment.
+installed and managing your Python 3 environment.
 
 You need a local copy of [Praat](https://www.fon.hum.uva.nl/praat/) to run the
 PSOLA algorithms. This needs to be in your PATH, so Python / parselmouth can
 utilize it
 
-### Rust
+### Rust stuff
 
 Implements the Graphic EQ & Sampling based stretcher / pitch shifter
 
 ```
-cargo run --release
+cargo run --release -- [path_to_wav_file]
 ```
 
-### Python
+
+### Python stuff
 
 Implements the PSOLA demos (wraps Praat)
 

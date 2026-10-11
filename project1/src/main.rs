@@ -5,10 +5,19 @@ use anyhow::Result;
 use fundsp::prelude64::*;
 use graphic_eq::GraphicEqBlock;
 use pitchshift_sampling::SamplerShiftBlock;
+use std::env;
 
 fn main() -> Result<()> {
-    // --- CONFIGURATION ---
-    let input_path = "basement_impulse.wav";
+    let args: Vec<String> = env::args().collect();
+
+    if args.len() == 1 {
+        println!("No args provided! Bruh!");
+        println!("Usage: {} [path_to_wav]", args[0]);
+        println!("It'll deposit a new wav file with your changes into your present working dir");
+        return Ok(());
+    }
+
+    let input_path = args[1].as_str();
     let name_without_ext = input_path
         .rsplit_once('.')
         .map(|(prefix, _)| prefix)
