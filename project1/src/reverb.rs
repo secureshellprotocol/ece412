@@ -41,7 +41,7 @@ impl ReverbBlock {
             return Ok(input_audio);
         }
 
-        println!("Applying reverb...");
+        print!("Applying reverb...");
     
         let exp = Exp::new(self.decay_factor).unwrap();
         let mut rng = thread_rng();
@@ -61,7 +61,7 @@ impl ReverbBlock {
     
         output_audio.normalize();
 
-        println!("reverb done!");
+        println!("done!");
         return Ok(output_audio);
     }
 }

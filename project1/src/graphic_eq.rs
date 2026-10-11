@@ -46,7 +46,7 @@ impl GraphicEqBlock {
             return Ok(input_audio);
         }
 
-        println!("Applying EQ...");
+        print!("Applying EQ...");
         // Create the fundsp graph using the DSL
         // We chain the filters using the >> operator
         // honestly i chose these since theyre the most similar to the mixing 
@@ -66,7 +66,7 @@ impl GraphicEqBlock {
     
         output_audio.normalize();
     
-        println!("Eq done!");
+        println!("done!");
         return Ok(output_audio);
     }
 }

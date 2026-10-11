@@ -34,6 +34,7 @@ impl SamplerShiftBlock {
     }
 
     pub fn work(&self, input_audio: Wave) -> Result<Wave> {
+        print!("Applying pitch shifting / time stretching...");
         let mut input_audio = input_audio.clone();
         let original_sampling_rate = input_audio.sample_rate();
 
@@ -62,6 +63,7 @@ impl SamplerShiftBlock {
             );
         }
         resampled_audio.normalize();
+        println!("done!");
         return Ok(resampled_audio);
     }
 }

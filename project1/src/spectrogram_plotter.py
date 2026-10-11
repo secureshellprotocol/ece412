@@ -13,7 +13,7 @@ audio_path = sys.argv[1]
 y, sr = librosa.load(audio_path, sr=None)
 
 # 2. Compute the Short-Time Fourier Transform (STFT)
-stft_matrix = librosa.stft(y, n_fft=8192, hop_length=512)
+stft_matrix = librosa.stft(y, n_fft=16384, hop_length=256)
 
 # 3. Convert magnitude spectrum to Decibels (dB)
 stft_db = librosa.amplitude_to_db(np.abs(stft_matrix), ref=np.max)
@@ -24,7 +24,7 @@ librosa.display.specshow(stft_db, sr=sr, x_axis='time', y_axis='log', cmap='magm
 
 # 5. Add visual anchors
 plt.colorbar(format='%+2.0f dB')
-plt.title("fuck you")#, sys.argv[1])
+plt.title(f"{audio_path}")
 plt.xlabel('Time (s)')
 plt.ylabel('Frequency (Hz)')
 plt.tight_layout()

@@ -1,4 +1,4 @@
-enabled: false
+enabled: true
 low_freq: 300.0
 low_gain: 0.01
 low_q: 1.0

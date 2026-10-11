@@ -1,19 +1,19 @@
+use anyhow::Result;
 use fundsp::prelude::*;
 
-#[derive(Clone)] // Required by AudioNode trait
-pub struct ManualCompressor {
+#[derive(Clone)]
+pub struct CompressorBlock {
     threshold_db: f32,
     ratio: f32,
     attack_coeff: f32,
     release_coeff: f32,
     envelope: f32,
+    sample_rate: f32,
 }
 
-impl ManualCompressor {
-    /// Constructor
-    /// threshold: dB, ratio: n:1, attack_ms: ms, release_ms: ms, sample_rate: Hz
+impl CompressorBlock {
     pub fn new(
-        threshold_db: f32,
+        threshold: f32,
         ratio: f32,
         attack_ms: f32,
         release_ms: f32,
@@ -22,80 +22,61 @@ impl ManualCompressor {
         let attack_coeff = 1.0 - (-1.0 / (attack_ms * 0.001 * sample_rate)).exp();
         let release_coeff = 1.0 - (-1.0 / (release_ms * 0.001 * sample_rate)).exp();
 
+        println!("attack {} release {}", attack_coeff, release_coeff);
+
         Self {
-            threshold_db,
+            threshold_db: 10.0 * threshold.log10(),
             ratio,
             attack_coeff,
             release_coeff,
             envelope: 0.0,
+            sample_rate,
         }
     }
 }
 
-// 1. Implement AudioNode without generics (unless you want multi-channel)
-impl AudioNode for ManualCompressor {
-    // 2. Define associated types for Mono (Inputs = (), Outputs = ())
-    type Inputs = U1;
-    type Outputs = U1;
+impl CompressorBlock {
+    pub fn work(&mut self, input: Wave) -> Result<Wave> {
+        print!("compressing...");
+        print!("{} channels...",  input.channels());
+        let mut input_clone = input.clone();
+        let input_channel: &mut [f32] = input_clone.channel_mut(0);
 
-    // 3. Required constant ID
-    const ID: u64 = 42;
+        let mut i = 0;
+        while i < input_channel.len() {
 
-    // 4. The correct tick signature for fundsp 0.23.0
-    fn tick(&mut self, input: &Frame<f32, Self::Inputs>) -> Frame<f32, Self::Outputs> {
-        // Access the mono sample from the input Frame
-        let sample = input[0];
+            let sample = input_channel[i];
+            print!("was {}, ", sample);
 
-        // --- DSP Logic ---
-        let abs_input = sample.abs();
-        
-        // Envelope Follower (Attack/Release)
-        let coeff = if abs_input > self.envelope {
-            self.attack_coeff
-        } else {
-            self.release_coeff
-        };
-        self.envelope = (1.0 - coeff) * self.envelope + coeff * abs_input;
+            let abs_input = sample.abs();
+            
+            // envelope detection
+            let coeff = if abs_input > self.envelope { 
+                self.attack_coeff 
+            } else { 
+                self.release_coeff 
+            };
+            self.envelope = (1.0 - coeff) * self.envelope + coeff * abs_input;
+            let env_db = 20.0 * self.envelope.max(1e-5).log10();
 
-        // Convert envelope to dB
-        // We use a floor to prevent log10(0)
-        let env_db = 20.0 * self.envelope.max(1e-5).log10();
-        
-        let mut gain_reduction_db = 0.0;
-        if env_db > self.threshold_db {
-            gain_reduction_db = (env_db - self.threshold_db) * (1.0 / self.ratio - 1.0);
+            // gain reduction
+            let mut gain_reduction_db = 0.0;
+            if env_db > self.threshold_db {
+                gain_reduction_db = (env_db - self.threshold_db) * (1.0 / self.ratio - 1.0);
+            }
+            // ADD THIS DEBUG LINE:
+            println!("DEBUG: Sample: {:.4}, Env_dB: {:.2}, Threshold: {:.2}, Gain_Red: {:.2}", 
+                      sample, env_db, self.threshold_db, gain_reduction_db);
+
+            let gain_multiplier = 10.0f32.powf(gain_reduction_db / 20.0);
+
+            input_channel[i] = sample * gain_multiplier;
+            println!("now {}", input_channel[i]);
+            i = i + 1;
         }
 
-        let gain_multiplier = 10.0f32.powf(gain_reduction_db / 20.0);
-
-        // Return the processed sample as a mono Frame
-        [sample * gain_multiplier].into()
+        println!("done!");
+        return Ok(Wave::from_samples(self.sample_rate as f64, input_channel));
     }
 }
 
-
-#[cfg(test)]
-mod test {
-    use fundsp::prelude::*;
-    use super::*;
-
-    #[test]
-    fn awesome() {
-        let sample_rate = 44100.0;
-
-        // 3. Use Explicit Node Construction to avoid "f32" ambiguity
-        let source = Sine::new(); 
-        let compressor = ManualCompressor::new(-20.0, 4.0, 10.0, 100.0, sample_rate);
-
-        // 4. Explicitly type the graph to help the compiler
-        // This tells Rust: "This graph is a chain of two AudioNodes"
-        let mut graph: Chain<Sine, ManualCompressor> = source >> compressor;
-
-        println!("Starting processing...");
-        for _ in 0..10 {
-            // Now .tick() is guaranteed to be found because 'graph' is a Chain
-            println!("Sample: {}", graph.tick());
-        }
-
-    }
-}
