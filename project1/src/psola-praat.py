@@ -25,9 +25,6 @@ def change_duration(sound, factor):
 
     call([duration_tier, manipulation], "Replace duration tier")
 
-    # I genuinely dont know why the wav file is getting clipped
-    # I clicked the same buttons in Praat and it worked fine...????
-    # I dont have time to debug this anymore :(
     return call(manipulation, "Get resynthesis (overlap-add)")
 
 if __name__ == "__main__":

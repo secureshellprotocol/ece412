@@ -1,0 +1,4 @@
+threshold: 0.01
+ratio: 15.0
+attack_ms: 10.0
+release_ms: 100.0

@@ -40,7 +40,7 @@ impl SamplerShiftBlock {
 
         let new_sampling_rate = original_sampling_rate * self.shift_factor;
 
-        //anti image: remove stuff that would seep into our band during downsample
+        //anti alias: remove stuff that would seep into our band during downsample
         if self.filter && self.shift_factor < 1.0 {
             input_audio = input_audio.filter(
                 (input_audio.length() as f64 / original_sampling_rate) as f64,
@@ -55,7 +55,7 @@ impl SamplerShiftBlock {
         let mut resampled_audio: Wave = input_audio.clone();
         resampled_audio.set_sample_rate(new_sampling_rate);
 
-        //anti alias: remove stuff that would seep into our band duuring upsample
+        //anti image: remove stuff that would seep into our band duuring upsample
         if self.filter && self.shift_factor > 1.0 {
             resampled_audio = resampled_audio.filter(
                 (resampled_audio.length() as f64 / new_sampling_rate) as f64,

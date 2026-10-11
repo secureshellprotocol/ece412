@@ -8,7 +8,6 @@ use amplifier::AmplifierBlock;
 use anyhow::Result;
 use compressor::CompressorBlock;
 use fundsp::prelude64::*;
-use fundsp::signal::Signal;
 use graphic_eq::GraphicEqBlock;
 use pitchshift_sampling::SamplerShiftBlock;
 use reverb::ReverbBlock;
@@ -66,12 +65,13 @@ fn main() -> Result<()> {
         .map(|(prefix, _)| prefix)
         .unwrap_or(input_path);
 
-
     let order = Order::new();
 
     let g_eq = GraphicEqBlock::new();
     let shift = SamplerShiftBlock::new();
     let rev = ReverbBlock::new();
+    let amplifier = AmplifierBlock::new();
+    let compressor = CompressorBlock::new();
 
     println!("Reading: {}", input_path);
     let mut input_audio = Wave::load(&input_path)?;
@@ -97,20 +97,9 @@ fn main() -> Result<()> {
                     shift.work(intermediate_audio.unwrap())
                 },
                 "compressor" => {
-                    let intermediate_audio = intermediate_audio.unwrap();
-                    let mut compressor = CompressorBlock::new(
-                        0.001,
-                        4.0,
-                        10.0,
-                        100.0,
-                        intermediate_audio.sample_rate() as f32
-                    );
-                    compressor.work(intermediate_audio)
+                    compressor.work(intermediate_audio.unwrap())
                 },
                 "amplifier" => {
-                    let mut amplifier = AmplifierBlock::new(
-                        10.0   // 10x the power
-                    );
                     amplifier.work(intermediate_audio.unwrap())
                 }
                 e => {
@@ -144,15 +133,4 @@ fn main() -> Result<()> {
         .expect("Failed to read line");
 
     Ok(())
-}
-
-mod test {
-    #[allow(unused)]
-    use super::*;
-    #[test]
-    fn make_reverb_settings() -> Result<(), Box<dyn std::error::Error>> {
-        let yaml_string = yaml_serde::to_string(&Order::default())?;
-        std::fs::write(ORDER_CONFIG_PATH, yaml_string)?;
-        Ok(())
-    }
 }
