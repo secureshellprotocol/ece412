@@ -12,6 +12,10 @@ import librosa
 import librosa.display
 import IPython.display as ipd
 
+from noise_filter import ColoredNoiseFilter
+from utils.autocorr import estimate_f0_robust
+from utils.quantize_lpc import quantize_lpc
+
 ## all of my base case extenstions will be introduced as functions here
 
 def print_help():
@@ -61,13 +65,16 @@ def main():
 
     ipd.display(ipd.Audio(data, rate=fs))
 
-    # Frame/subframe structure, matching the 20ms frames / 5ms subframes described above
+    # Frame/subframe structure
     # each frame is used to calculate the autocorr matrix (f0)
     frame_ms, subframe_ms = 20, 5
     frame_len = int(frame_ms*fs/1000)
     subframe_len = int(subframe_ms*fs/1000)
     subframes_per_frame = frame_len // subframe_len
-    lpc_order = int(1.25*fs/1000)  # same rule of thumb as in the Linear prediction chapter
+    # assumption is: vocal tract is 17cm, and speed of sound in vocal tract is 350m/s
+    # M = (2 * f_s * L) / c which approx (1.25 / 1000) * f_s
+    lpc_order = int(1.25*fs/1000)
+    print(f"LPC Order {lpc_order}")
 
     # Pitch (adaptive-codebook) lag search range. Lags shorter than one subframe
     # would need the candidate excitation to be generated recursively, since it
@@ -90,13 +97,25 @@ def main():
     decoded = np.zeros(len(data))
     # todo figure out where the bits numbers came from
     bits_used = 0
-    bits_per_subframe = 8 + 5 + 7 + 1 + 5  # lag, pitch gain, pulse position, pulse sign, noise gain
+    lpc_bits = 16
+    bits_per_subframe = 8 + 5 + 7 + 1 + 5 + lpc_bits
+    # lag, pitch gain, pulse position, pulse sign, noise gain, lpc quanitzation
 
     for f in range(n_frames):
         frame = data[f*frame_len:(f+1)*frame_len]
 
         # -- LPC analysis (same convention as in the Linear prediction chapter) ---
+        # autocorr describes periodic structures in the frame (ignoring time
+        # lag 0, we can see that the next major peak is the lag where we see our
+        # fundamental frequency)
         windowed = frame * np.hanning(frame_len)
+
+        # For some reason, this fn only calls np.correlate when making the
+        # autocorr, but theres some kind of issue where we end up with invalid
+        # values after using that matrix.
+        estimated_f0, estimated_lag, pos_lags, pos_autocorr, _, _ = \
+            estimate_f0_robust(windowed, fs) # min hz 20, max 1000
+
         autocorr = np.correlate(windowed, windowed, mode='full')[frame_len-1:frame_len+lpc_order]
         autocorr[0] *= 1.0001  # tiny regularisation to keep the Toeplitz system well-conditioned
         b = np.zeros(lpc_order+1); b[0] = 1.0
@@ -104,6 +123,10 @@ def main():
         a = a / a[0]  # A(z) = 1 + a_1 z^-1 + ... + a_p z^-p
 
         w_num, w_den = get_speex_weighting_coeffs(a, 0.9, 0.6)
+
+        quantized_indices, a, min_val, max_val = quantize_lpc(a, lpc_bits)
+
+
 
         for s in range(subframes_per_frame):
             start = f*frame_len + s*subframe_len
@@ -116,20 +139,20 @@ def main():
 
             # --- long-term (pitch) prediction: x_F0^*, argmax over candidate lags T ---
             scores = []
-            # iterate over each subframe
+            w_x = lfilter(w_num, w_den, x)
             for T in range(lag_min, lag_max+1):
                 cand = excitation_history[-T:len(excitation_history)-T+subframe_len]
-                scores.append(np.dot(x, cand)**2 / (np.dot(cand, cand) + 1e-9))
+                # introduce weighting filter during lag selection, this is
+                # adjusting to eq 5 in the aalto book
+                # I'm gonna stick with the simplest case noise codebook (one
+                # signed pulse) and shove it through a pink noise filter
+                w_cand = lfilter(w_num, w_den, cand)
+                scores.append(np.dot(w_x, w_cand)**2 / (np.dot(w_cand, w_cand) + 1e-9))
             # pick the best time lag and slice that data
             best_T = lag_min + int(np.argmax(scores))
             x_f0 = excitation_history[-best_T:len(excitation_history)-best_T+subframe_len]
 
-            #gain_f0 = np.dot(x, x_f0) / (np.dot(x_f0, x_f0) + 1e-9)               # gamma_F0^*
-
-            w_x = lfilter(w_num, w_den, x)
-            w_x_f0 = lfilter(w_num, w_den, x_f0)
-            gain_f0 = np.dot(w_x, w_x_f0) / np.dot(w_x_f0, w_x_f0)
-            # fix to a gain
+            gain_f0 = np.dot(x, x_f0) / (np.dot(x_f0, x_f0) + 1e-9)               # gamma_F0^*
             gain_f0 = pitch_gain_levels[np.argmin(np.abs(pitch_gain_levels - gain_f0))]
             x_prime = x - gain_f0 * x_f0                                          # F0-residual
 
@@ -139,28 +162,32 @@ def main():
             x_noise = np.zeros(subframe_len)
             x_noise[pulse_pos] = pulse_sign
 
-            #gain_noise = x_prime[pulse_pos] * pulse_sign                          # gamma_noise^*
-            #gain_noise = (transpose(x) @ W_trans @ W @ x_noise) / (transpose(x_noise) @ W_trans @ W @ x_noise) # gamma_noise^*
-            w_x_noise = lfilter(w_num, w_den, x_noise)
-            gain_noise = np.dot(w_x, w_x_noise) / np.dot(w_x_noise, w_x_noise)
+            # Throwing a color filter on it, cause I want to spread out the
+            # energy in the noise and not just have a delta at my subframe
+            # This could stem from my own misunderstanding but i like the
+            # results im getting with this
+            color_filter = ColoredNoiseFilter(spectral_slope=0.5)
+            x_noise = color_filter.apply(x_noise, sr=fs, attenuation=0.707)
+
+            gain_noise = x_prime[pulse_pos] * pulse_sign                          # gamma_noise^*
             gain_noise = noise_gain_levels[np.argmin(np.abs(noise_gain_levels - gain_noise))]
 
             # --- quantized excitation and reconstruction, x_hat^* ---
-            attenuation_factor = 0.1
-            excitation = (gain_f0*x_f0 + gain_noise*x_noise)*attenuation_factor
+            excitation = (gain_f0*x_f0 + gain_noise*x_noise)
             excitation_history = np.concatenate((excitation_history[subframe_len:], excitation))
 
+            # inverse filtering
             synth_out, synth_state = lfilter([1.0], a, excitation, zi=synth_state)
             decoded[start:start+subframe_len] = synth_out
 
             bits_used += bits_per_subframe
 
     decoded = np.clip(decoded, -1.0, 1.0)
+    decoded = np.nan_to_num(decoded)
 
     duration_s = len(data)/fs
     bitrate_kbps = bits_used/duration_s/1000
-    print(f"Encoded {duration_s:.2f}s of speech at {bitrate_kbps:.1f} kbit/s "
-          f"(excluding the LPC coefficients themselves, which we did not quantize)")
+    print(f"Encoded {duration_s:.2f}s of speech at {bitrate_kbps:.1f} kbit/s ")
 
     data_f = data.astype(np.float32)
     decoded_f = decoded.astype(np.float32)
