@@ -14,9 +14,19 @@ def quantize_lpc(coeffs, bits):
         reconstructed (np.array): The coefficients after dequantization.
         min_val (float): The minimum value used for scaling.
         max_val (float): The maximum value used for scaling.
+
+
+    this code basically just acts like how a physical ladder adc would, some
+    analog value gets snapped to some fixed level of bits
+
+    ladder adc
+     - r + - r  +
+        |       |       ...
+        2r      2r
+
+    this wonderful graphic was not ai generated
     """
     # 1. Determine the range of the coefficients
-    # In CELP, coefficients are often within [-1, 1], but it's safer to use the actual range
     min_val = np.min(coeffs)
     max_val = np.max(coeffs)
 

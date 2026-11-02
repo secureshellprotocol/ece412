@@ -1,3 +1,2 @@
-#!/bin/bash
+#!/bin/bash -x
 ffmpeg -i $1 -ar $2 $3
-
