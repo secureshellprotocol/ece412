@@ -13,7 +13,7 @@ import librosa.display
 import IPython.display as ipd
 
 ## all of my base case extenstions will be introduced as external modules
-from noise_filter import ColoredNoiseFilter
+from utils.noise_filter import ColoredNoiseFilter
 from utils.autocorr import estimate_f0_robust
 from utils.speex import get_speex_weighting_coeffs
 from utils.quantize_lpc import quantize_lpc
